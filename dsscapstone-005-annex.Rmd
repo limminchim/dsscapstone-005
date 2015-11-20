@@ -1,0 +1,944 @@
+---
+title:    "Annex for Data Science Capstone Project Report"
+subtitle: "Sentiment Analysis of Yelp Restaurant Reviews"
+author:   Paul Lim
+date:     20 Nov 2015
+output: 
+  html_document:
+    theme: readable
+---
+
+<style type="text/css">
+
+/* http://rmarkdown.rstudio.com/html_document_format.html */
+/* https://www.rstudio.com/wp-content/uploads/2015/03/rmarkdown-reference.pdf */
+/* http://stackoverflow.com/questions/30446905/rmarkdown-font-size-and-header */
+
+body, td {
+   font-size: 12px;
+}
+code.r{
+  font-size: 10px;
+}
+pre {
+  font-size: 8px
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 20px;
+}
+
+h3 {
+  font-size: 18px;
+}
+
+h4 {
+  font-size: 16px;
+}
+
+h5 {
+  font-size: 14px;
+}
+
+h6 {
+  font-size: 12px;
+}
+
+</style>
+
+
+```{r load_packages, include=F, message=F, warning=F}
+#install.packages("devtools")
+require(devtools)
+library(devtools)
+source('useful-functions.R')
+```
+
+## Preparing the Data
+
+### Getting the Data
+The dataset provided for the Capstone Project is part of the [Yelp Dataset Challenge](http://www.yelp.com/dataset_challenge) and can be downloaded from site: [Yelp Dataset Challenge Round 6 Data](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/yelp_dataset_challenge_academic_dataset.zip) [575 MB]. The raw data is downloaded and unpacked into a subfolder "data". It contains 5 JSON files, where each file is composed of a single object type. For this study, I am mainly interested only in the review and business data. 
+
+### Processing Data 
+The following code shows how to read the raw JSON into memory and to save them as RDS files. An RDS file is a binary file and the advantages of RDS format is that it is more compact, faster to read, and can store any type of R data structure. 
+```{r, eval=F, echo=T, fig.height=3, fig.width=3}
+# installing & loading required packages
+
+#install.packages("jsonlite")
+library(jsonlite)
+
+### Reading & Saving Raw Data
+# get current working dir
+wdir <- getwd()
+# init the path to raw data files
+json_business_filepath <- paste(wdir, "yelp_academic_dataset_business.json", sep="/data/")
+json_review_filepath <- paste(wdir, "yelp_academic_dataset_review.json", sep="/data/")
+
+# Due to large filesize of some of the files (e.g. reviews), 
+# it is best to use streaming to read in 10,000 lines at a time until 
+# completion
+df_raw_business <- jsonlite::stream_in(file(json_business_filepath), pagesize = 10000)
+df_raw_review <- jsonlite::stream_in(file(json_review_filepath), pagesize = 10000)
+
+# prepare rds file path
+rds_raw_business_filepath <- paste(wdir, "yelp_academic_dataset_business.rds", sep="/data/")
+rds_raw_review_filepath <- paste(wdir, "yelp_academic_dataset_review.rds", sep="/data/")
+
+# save to RDS files
+saveRDS(df_raw_business, file = rds_raw_business_filepath)
+saveRDS(df_raw_review, file = rds_raw_review_filepath)
+
+###################################################################################
+# get current working dir
+wdir <- getwd()
+# prepare rds file path
+rds_raw_business_filepath <- paste(wdir, "yelp_academic_dataset_business.rds", sep="/data/")
+rds_raw_review_filepath <- paste(wdir, "yelp_academic_dataset_review.rds", sep="/data/")
+
+### Cleaning, Extracting & Formatting Restaurant Businesses
+# read from RData files for processing
+df_raw_business <- readRDS(file = rds_raw_business_filepath)
+# if no categories or neighorhoods or attributes, set as NA
+df_biz_restaurants <- df_raw_business
+rowSelected <- c()
+for (i in 1:nrow(df_biz_restaurants)) {
+    # if no categories, set as NA
+    if (length(df_biz_restaurants$categories[[i]])==0) {
+        df_biz_restaurants$categories[[i]] <- NA
+    }
+    # if no neighborhoods, set as NA
+    if (length(df_biz_restaurants$neighborhoods[[i]])==0) {
+        df_biz_restaurants$neighborhoods[[i]] <- NA
+    }
+    # select only restaurants
+    bRest <- ("Restaurants" %in%  df_biz_restaurants$categories[[i]]) 
+    rowSelected <- c(rowSelected, bRest)
+}
+# re-order and select columns
+colSelected <- c("business_id", "name", "full_address", 
+                 "city", "state", "neighborhoods",
+                 "longitude",   "latitude",
+                 "review_count", "stars", "open")
+# There are 21,892 restaurants
+df_biz_restaurants <- df_biz_restaurants[rowSelected, colSelected]
+# Only 17,558 restaurant still open
+df_biz_restaurants <- df_biz_restaurants[df_biz_restaurants$open==TRUE,]
+
+### Cleaning, Extracting & Formatting Reviews
+df_raw_review <- readRDS(file = rds_raw_review_filepath)
+# prepare the ordered list of names for vote columns
+review_vote_names = list()
+for(i in 1:length(df_raw_review$votes)) {
+    review_vote_names = c(review_vote_names, paste("review.vote", names(df_raw_review$votes[i]), sep="."))
+}
+review_vote_names = as.character(review_vote_names)
+# Re-order the columns, dropping "votes"
+df_review_details <- df_raw_review[c("review_id","date","business_id","user_id","stars","text")] 
+# Column-join the first 6 columns + 3 vote-type columns
+df_review_details <- data.frame(df_review_details, df_raw_review$votes)
+names(df_review_details) <- c("review_id","date","business_id","user_id","stars","text",review_vote_names)
+# Converts date column to Date type
+df_review_details$date <- as.Date(df_review_details$date)
+# get only restaurant reviews - 883,750
+df_rest_reviews <- df_review_details
+df_rest_reviews <- df_rest_reviews[(df_rest_reviews$business_id %in% df_biz_restaurants$business_id ),]
+
+### Save Processed Data in Rdata format
+# save list of restaurants
+rds_restaurant_details_filepath <- paste(wdir, "biz_restaurants.rds", sep="/mydata/")
+saveRDS(df_biz_restaurants, file = rds_restaurant_details_filepath)
+# release memory
+rm(df_raw_business)
+rm(bRest,colSelected,rowSelected)
+# save list of restaurant reviews
+rds_rest_reviews_filepath <- paste(wdir, "restaurant_reviews.rds", sep="/mydata/")
+saveRDS(df_rest_reviews,rds_rest_reviews_filepath)
+# release memory
+rm(df_raw_review)
+rm(df_review_details)
+```
+
+## Exploratory Analysis
+
+```{r, echo=T, fig.height=7, fig.width=7}
+# get current working dir
+wdir <- getwd()
+# read list of restaurants from RDS file
+rds_restaurant_details_filepath <- paste(wdir, "biz_restaurants.rds", sep="/mydata/")
+df_biz_restaurants <- readRDS(file = rds_restaurant_details_filepath)
+# read reviews from RDS file
+rds_rest_reviews_filepath <- paste(wdir, "restaurant_reviews.rds", sep="/mydata/")
+df_rest_reviews <- readRDS(file = rds_rest_reviews_filepath)
+numRestaurants <- length(unique(df_biz_restaurants$business_id))
+numReviews <- nrow(df_rest_reviews)
+```
+`r numRestaurants` restaurants are still in operation, with a total of `r numReviews` reviews. The rest of the preliminary analysis is listed in Annex C.
+
+```{r, echo=T, fig.height=3, fig.width=5}
+# count of stars for different businesses
+df_reviews_stars <- df_rest_reviews$stars
+# gives you the freq table
+ft_review_star_count <- table(df_reviews_stars)
+# histogram
+barplot(ft_review_star_count, 
+        main = "Distribution of review ratings",
+        xlab = "Star-Rating",
+        ylab = "count")
+```
+
+It can be observed that generally, the number of ratings drop with the star-rating itself. 
+
+### Number of businesses in different states
+Due to the way businesses are distributed, there are very low number of restaurants in many states; most of the businesses are concentrated in only a few states. This is shown in the plots below.
+
+```{r, echo=T, fig.height=3, fig.width=5, message=F, warning=F}
+
+# get current working dir
+wdir <- getwd()
+
+# read list of restaurants from RDS file
+rds_restaurant_details_filepath <- paste(wdir, "biz_restaurants.rds", sep="/mydata/")
+df_biz_restaurants <- readRDS(file = rds_restaurant_details_filepath)
+
+# read reviews from RDS file
+rds_rest_reviews_filepath <- paste(wdir, "restaurant_reviews.rds", sep="/mydata/")
+df_rest_reviews <- readRDS(file = rds_rest_reviews_filepath)
+
+numRestaurants <- length(unique(df_biz_restaurants$business_id))
+
+numReviews <- nrow(df_rest_reviews)
+
+
+### Number of businesses in different states
+# count of businesses in different states
+df_state <- df_biz_restaurants$state
+# gives you the freq table
+ft_state <- table(df_state)
+# sort
+ft_state <- sort(ft_state, decreasing = T)
+# histogram
+barplot(ft_state, 
+        main = "Distribution of restaurants",
+        xlab = "across different states",
+        ylab = "count")
+names(ft_state)
+
+# filtered histogram of states with most businesses
+filtered_state <- ft_state[names(ft_state)[ ft_state > 100 ]]
+barplot(filtered_state, 
+        main = "Distribution of restaurants",
+        xlab = "States with > 100 restaurants",
+        ylab = "count")
+names(filtered_state)[ filtered_state > 100 ]
+
+# count of businesses in different cities
+df_city <- df_biz_restaurants$city
+# gives you the freq table
+ft_city <- table(df_city)
+# sort
+ft_city <- sort(ft_city, decreasing = T)
+# histogram
+barplot(ft_city, 
+        main = "Distribution of restaurants",
+        xlab = "across different cities",
+        ylab = "count")
+
+
+# To view and focus on cities with higher number of restaurants
+filtered_city <- ft_city[names(ft_city)[ ft_city > 100 ]]
+# filtered histogram of cities with most businesses
+barplot(filtered_city, 
+        main = "Distribution of restaurants",
+        xlab = "Cities with > 100 restaurants",
+        ylab = "count")
+names(filtered_city)[ filtered_state > 100 ]
+
+### Restaurants and star ratings
+# count of stars for different businesses
+df_rest_stars <- df_biz_restaurants$stars
+# gives you the freq table
+ft_rest_star_count <- table(df_rest_stars)
+# histogram
+barplot(ft_rest_star_count, 
+        main = "Distribution of restaurant ratings",
+        xlab = "Star-Rating",
+        ylab = "count")
+
+### Reviews & review ratings
+# count of stars for different businesses
+df_reviews_stars <- df_rest_reviews$stars
+# gives you the freq table
+ft_review_star_count <- table(df_reviews_stars)
+# histogram
+barplot(ft_review_star_count, 
+        main = "Distribution of review ratings",
+        xlab = "Star-Rating",
+        ylab = "count")
+
+```
+
+
+
+
+### Extracting 1-, 2-, 3-, 4- and 5-star review sample
+```{r, echo=T, fig.height=3, fig.width=3}
+# sample reviews for exploratory analysis
+set.seed(123)
+df_review_ids <- sample(df_rest_reviews$review_id,1000)
+df_review_samples <- df_rest_reviews[df_rest_reviews$review_id %in% df_review_ids,]
+# extract reviews of different rating
+df_reviews_01star <- df_review_samples[df_review_samples$stars==1,]
+df_reviews_02star <- df_review_samples[df_review_samples$stars==2,]
+df_reviews_03star <- df_review_samples[df_review_samples$stars==3,]
+df_reviews_04star <- df_review_samples[df_review_samples$stars==4,]
+df_reviews_05star <- df_review_samples[df_review_samples$stars==5,]
+```
+
+From a sample of `r nrow(df_review_samples)` reviews, there are `r nrow(df_reviews_01star)` 1-star, `r nrow(df_reviews_02star)` 2-star, `r nrow(df_reviews_03star)` 3-star, `r nrow(df_reviews_04star)` 4-star and `r nrow(df_reviews_05star)` 5-star reviews.
+
+### Sentiment scores for Reviews
+Sentiment analysis package "tm.lexicon.GeneralInquirer" is used to compute the positive, negative and net sentiment scores of each review. The instructions for installing all required packages are listed in Annex A.
+
+```{r, echo=T, fig.height=6, fig.width=8}
+par(mfrow = c(3, 2))
+df_05star_score <- getSentimentScore(text=df_reviews_05star$text)
+barplot(df_05star_score$score, 
+        main = "Scores for 5-star reviews")
+df_04star_score <- getSentimentScore(text=df_reviews_04star$text)
+barplot(df_04star_score$score, 
+        main = "Scores for 4-star reviews")
+df_03star_score <- getSentimentScore(text=df_reviews_03star$text)
+barplot(df_03star_score$score, 
+        main = "Scores for 3-star reviews")
+df_02star_score <- getSentimentScore(text=df_reviews_02star$text)
+barplot(df_02star_score$score, 
+        main = "Scores for 2-star reviews")
+df_01star_score <- getSentimentScore(text=df_reviews_01star$text)
+barplot(df_01star_score$score, 
+        main = "Scores for 1-star reviews")
+```
+
+From the plots above, it is observed that the number of negative scores increases as the star-rating descreases
+
+### Wordclouds: Top 50 words used in review samples
+```{r, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+renderCleanedWordCloud(df_reviews_01star$text, 50, "Top words - 1-star reviews")
+```
+```{r, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+renderCleanedWordCloud(df_reviews_02star$text, 50, "Top words - 2-star reviews")
+```
+```{r, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+renderCleanedWordCloud(df_reviews_03star$text, 50, "Top words - 3-star reviews")
+```
+```{r, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+renderCleanedWordCloud(df_reviews_04star$text, 50, "Top words - 4-star reviews")
+```
+```{r, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+renderCleanedWordCloud(df_reviews_05star$text, 50, "Top words - 5-star reviews")
+```
+
+The most-frequently-used words are:
+
+* 1-star: food, place, service, like, get, one, experience, nice
+* 2-star: food, like, place, good, time, service, order 
+* 3-star: food, good, place, like, service, great
+* 4-star: good, food, great, place, like, service
+* 5-star: food, great, place, good, service, like, best
+
+It is observed that:
+
+* The common positive descriptive words used are "good", "great", "best" and "like".
+* The common business-related nouns are "food", "place", "service" and "experience".
+* 1- and 2-star reviews contain lots of negative words (e.g. never, didnt, wasnt, dont etc); food-related references (e.g. buffet, chicken, fries, chesse, salad, pizza etc); service-related references (e.g. people, manager, experience, waitress, order, tables etc). 
+* 3-, 4- and 5-star reviews contain more of postive descriptive words (e.g. good, best, love, fresh, nice, great, excellent etc); but much fewer references to specific food or service.
+* Among the top words, there are no reference to attributes like car parks, wi-fi, coat check, music, distance, convenience etc.
+
+## Most Frequently-Used Phrases
+
+### Constructing word-frequency lookup table
+Instead of merely looking at frequently-used single words, I want to find the most frequently-used phrases (in particular 3- and 4-word phrases).
+
+### Build Corpus, Tokenization and Clean Text Data
+The following steps are taken to prepare the word-frequency lookup table from the samples:
+
+* convert all characters to lower case
+* remove the punctuation
+* remove the numbers
+* remove the white space
+* skip stemming and removal of sparse terms, in order to consider all words used in reviews
+
+```{r, echo=T, fig.height=6, fig.width=6}
+corpus <- Corpus(VectorSource(df_review_samples$text))
+corpus <- tm_map(corpus, content_transformer(tolower)) 
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers) 
+corpus <- tm_map(corpus, stripWhitespace)
+
+# Tokenizing the corpus and construct N-Grams
+# Will only construct 3-gram, and 4-gram tokenizers as 1-gram and 2-gram does not seem to show much insight into the question of interest
+# Tokenizer for n-grams and passed on to the term-document matrix constructor
+TdmTri <- TermDocumentMatrix(corpus, control = list(tokenize = TrigramTokenizer))
+TdmQuad <- TermDocumentMatrix(corpus, control = list(tokenize = QuadgramTokenizer))
+# Remove NAs
+TdmTri <- slam::rollup(TdmTri, 2, na.rm=TRUE, FUN = sum)
+TdmQuad <- slam::rollup(TdmQuad, 2, na.rm=TRUE, FUN = sum)
+# Term frequency
+freq.tri <- rowSums(as.matrix(TdmTri))
+freq.quad <- rowSums(as.matrix(TdmQuad))
+##sort
+freq.tri <- sort(freq.tri, decreasing = TRUE)
+freq.quad <- sort(freq.quad, decreasing = TRUE)
+# Create the top X data frames from the matrices
+topnum <- 30
+df.freq.tri <- data.frame("Term"=names(head(freq.tri,topnum)), "Frequency"=head(freq.tri,topnum))
+df.freq.quad <- data.frame("Term"=names(head(freq.quad,topnum)), "Frequency"=head(freq.quad,topnum))
+# Reorder levels for better plotting
+df.freq.tri$Term1 <- reorder(df.freq.tri$Term, df.freq.tri$Frequency)
+df.freq.quad$Term1 <- reorder(df.freq.quad$Term, df.freq.quad$Frequency)
+# clear memory
+rm(TdmTri)
+rm(TdmQuad)
+```
+
+### Bar plots for N-Grams Token
+```{r, echo=T, fig.height=7, fig.width=8}
+p3 <-
+    ggplot(df.freq.tri, aes(x = Term1, y = Frequency)) +
+    geom_bar(stat = "identity", color="gray55", fill="greenyellow") +
+    geom_text(data=df.freq.tri,aes(x=Term1,y=-25,label=Frequency),vjust=0, size=3) +  
+    xlab("Terms") + ylab("Count") + ggtitle("Top 30 TriGram Tokenized Word Frequency (1000 samples)") +
+    theme(plot.title = element_text(lineheight=.8, face="bold")) +
+    coord_flip()
+
+p4 <-
+    ggplot(df.freq.quad, aes(x = Term1, y = Frequency)) +
+    geom_bar(stat = "identity", color="gray55", fill="brown1") +
+    geom_text(data=df.freq.quad,aes(x=Term1,y=-3,label=Frequency),vjust=0, size=3) +  
+    xlab("Terms") + ylab("Count") + ggtitle("Top 30 QuadGram Tokenized Word Frequency (1000 samples)") +
+    theme(plot.title = element_text(lineheight=.8, face="bold")) +
+    coord_flip()
+multiplot(p3, p4, cols=1)
+```
+
+### Word Clouds for the N-Gram Tokens
+```{r, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+renderWordCloud (words = df.freq.tri$Term1,
+                 freq = df.freq.tri$Frequency,  
+                 max.words = 30,
+                 title = "TriGram Word Cloud (from 1000 samples)",
+                 scale = c(3,0.1))
+```
+```{r, echo=T, fig.height=4, fig.width=4, message=F, warning=F}
+renderWordCloud (words = df.freq.quad$Term1,
+                 freq = df.freq.quad$Frequency,  
+                 max.words = 30,
+                 title = "QuadGram Word Cloud (from 1000 samples)",
+                 scale = c(3.5,0.1))
+```
+
+It is observed that the most-frequently used phrases are:
+
+* Tri-grams:  "the food was", "and it was", "this place is", "the food is", "i had the", "the service was", "the service is" etc
+* Quad-grams: "one of the best", "my husband and I", "i have ever had", "is one of the", "the rest of the", "my friend and i", "for the first time" etc
+
+The tri-grams top results further supports the inference that "food" and "place" (which may refer to service or physical environment) are what drives customers to write reviews. It is observed that the 4-word phrases is more complete while 3-word phrases tend to be truncated and incomplete. It is easier to infer the key important ideas for customers from 4-word phrases. With this, I decided to focus on only Quad-grams. 
+
+# Results 
+
+Now I apply the same steps on the full dataset of `r numReviews` reviews. 
+
+```{r, echo=T, fig.height=3, fig.width=6}
+#df_review_samples <- df_rest_reviews
+
+# extract reviews of different rating
+#df_reviews_01star <- df_review_samples[df_review_samples$stars==1,]
+#df_reviews_02star <- df_review_samples[df_review_samples$stars==2,]
+#df_reviews_03star <- df_review_samples[df_review_samples$stars==3,]
+#df_reviews_04star <- df_review_samples[df_review_samples$stars==4,]
+#df_reviews_05star <- df_review_samples[df_review_samples$stars==5,]
+```
+
+From a sample of `r nrow(df_review_samples)` reviews, there are `r nrow(df_reviews_01star)` 1-star, `r nrow(df_reviews_02star)` 2-star, `r nrow(df_reviews_03star)` 3-star, `r nrow(df_reviews_04star)` 4-star and `r nrow(df_reviews_05star)` 5-star reviews.
+
+## Results for 1-star Reviews
+```{r, echo=F, fig.height=3, fig.width=6}
+corpus <- Corpus(VectorSource(df_reviews_01star$text))
+corpus <- tm_map(corpus, content_transformer(tolower)) 
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers) 
+corpus <- tm_map(corpus, stripWhitespace)
+# Tokenizing the corpus and construct N-Grams
+# Will only construct 4-gram tokenizers
+# Tokenizer for n-grams and passed on to the term-document matrix constructor
+TdmQuad <- TermDocumentMatrix(corpus, control = list(tokenize = QuadgramTokenizer))
+# Remove NAs
+TdmQuad <- slam::rollup(TdmQuad, 2, na.rm=TRUE, FUN = sum)
+# Term frequency
+freq.quad <- rowSums(as.matrix(TdmQuad))
+##sort
+freq.quad <- sort(freq.quad, decreasing = TRUE)
+# Create the top X data frames from the matrices
+topnum <- 30
+df.freq.quad <- data.frame("Term"=names(head(freq.quad,topnum)), "Frequency"=head(freq.quad,topnum))
+# Reorder levels for better plotting
+df.freq.quad$Term1 <- reorder(df.freq.quad$Term, df.freq.quad$Frequency)
+# clear memory
+rm(TdmQuad)
+```
+
+```{r, eval=T, echo=F, fig.height=5, fig.width=8}
+### Bar plots for N-Grams Token (1-star reviews)
+p4 <-
+    ggplot(df.freq.quad, aes(x = Term1, y = Frequency)) +
+    geom_bar(stat = "identity", color="gray55", fill="brown1") +
+    geom_text(data=df.freq.quad,aes(x=Term1,y=-3,label=Frequency),vjust=0, size=3) +  
+    xlab("Terms") + ylab("Count") + ggtitle("Top 30 QuadGram Tokenized Word Frequency (1-star reviews)") +
+    theme(plot.title = element_text(lineheight=.8, face="bold")) +
+    coord_flip()
+multiplot(p4, cols=1)
+```
+
+```{r, eval=T, echo=F, fig.height=4, fig.width=4, message=F, warning=F}
+### Word Clouds for QuadGram Tokens (1-star reviews)
+renderWordCloud(words = df.freq.quad$Term1,
+                freq = df.freq.quad$Frequency,  
+                max.words = Inf,
+                title = "QuadGram Word Cloud (1-star reviews)",
+                scale = c(1,0.5),
+                min.freq = 1)
+```
+
+## Results for 2-star Reviews
+```{r, echo=F, fig.height=3, fig.width=6}
+corpus <- Corpus(VectorSource(df_reviews_02star$text))
+corpus <- tm_map(corpus, content_transformer(tolower)) 
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers) 
+corpus <- tm_map(corpus, stripWhitespace)
+# Tokenizing the corpus and construct N-Grams
+# Will only construct 4-gram tokenizers
+# Tokenizer for n-grams and passed on to the term-document matrix constructor
+TdmQuad <- TermDocumentMatrix(corpus, control = list(tokenize = QuadgramTokenizer))
+# Remove NAs
+TdmQuad <- slam::rollup(TdmQuad, 2, na.rm=TRUE, FUN = sum)
+# Term frequency
+freq.quad <- rowSums(as.matrix(TdmQuad))
+##sort
+freq.quad <- sort(freq.quad, decreasing = TRUE)
+# Create the top X data frames from the matrices
+topnum <- 30
+df.freq.quad <- data.frame("Term"=names(head(freq.quad,topnum)), "Frequency"=head(freq.quad,topnum))
+# Reorder levels for better plotting
+df.freq.quad$Term1 <- reorder(df.freq.quad$Term, df.freq.quad$Frequency)
+# clear memory
+rm(TdmQuad)
+```
+
+```{r, eval=T, echo=F, fig.height=5, fig.width=8}
+### Bar plots for N-Grams Token (2-star reviews)
+p4 <-
+    ggplot(df.freq.quad, aes(x = Term1, y = Frequency)) +
+    geom_bar(stat = "identity", color="gray55", fill="brown1") +
+    geom_text(data=df.freq.quad,aes(x=Term1,y=-3,label=Frequency),vjust=0, size=3) +  
+    xlab("Terms") + ylab("Count") + ggtitle("Top 30 QuadGram Tokenized Word Frequency (2-star reviews)") +
+    theme(plot.title = element_text(lineheight=.8, face="bold")) +
+    coord_flip()
+multiplot(p4, cols=1)
+```
+
+```{r, eval=T, echo=F, fig.height=4, fig.width=4, message=F, warning=F}
+### Word Clouds for QuadGram Tokens (2-star reviews)
+renderWordCloud(words = df.freq.quad$Term1,
+                freq = df.freq.quad$Frequency,  
+                max.words = Inf,
+                title = "QuadGram Word Cloud (2-star reviews)",
+                scale = c(2,0.1),
+                min.freq = 1)
+```
+
+## Results for 3-star Reviews
+```{r, echo=F, fig.height=3, fig.width=6}
+corpus <- Corpus(VectorSource(df_reviews_03star$text))
+corpus <- tm_map(corpus, content_transformer(tolower)) 
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers) 
+corpus <- tm_map(corpus, stripWhitespace)
+# Tokenizing the corpus and construct N-Grams
+# Will only construct 4-gram tokenizers
+# Tokenizer for n-grams and passed on to the term-document matrix constructor
+TdmQuad <- TermDocumentMatrix(corpus, control = list(tokenize = QuadgramTokenizer))
+# Remove NAs
+TdmQuad <- slam::rollup(TdmQuad, 2, na.rm=TRUE, FUN = sum)
+# Term frequency
+freq.quad <- rowSums(as.matrix(TdmQuad))
+##sort
+freq.quad <- sort(freq.quad, decreasing = TRUE)
+# Create the top X data frames from the matrices
+topnum <- 30
+df.freq.quad <- data.frame("Term"=names(head(freq.quad,topnum)), "Frequency"=head(freq.quad,topnum))
+# Reorder levels for better plotting
+df.freq.quad$Term1 <- reorder(df.freq.quad$Term, df.freq.quad$Frequency)
+# clear memory
+rm(TdmQuad)
+```
+
+```{r, eval=T, echo=F, fig.height=5, fig.width=8}
+### Bar plots for N-Grams Token (3-star reviews)
+p4 <-
+    ggplot(df.freq.quad, aes(x = Term1, y = Frequency)) +
+    geom_bar(stat = "identity", color="gray55", fill="brown1") +
+    geom_text(data=df.freq.quad,aes(x=Term1,y=-3,label=Frequency),vjust=0, size=3) +  
+    xlab("Terms") + ylab("Count") + ggtitle("Top 30 QuadGram Tokenized Word Frequency (3-star reviews)") +
+    theme(plot.title = element_text(lineheight=.8, face="bold")) +
+    coord_flip()
+multiplot(p4, cols=1)
+```
+
+```{r, eval=T, echo=F, fig.height=4, fig.width=4, message=F, warning=F}
+### Word Clouds for QuadGram Tokens (3-star reviews)
+renderWordCloud(words = df.freq.quad$Term1,
+                freq = df.freq.quad$Frequency,  
+                max.words = Inf,
+                title = "QuadGram Word Cloud (3-star reviews)",
+                scale = c(2,0.2))
+```
+
+## Results for 4-star Reviews
+
+```{r, echo=F, fig.height=3, fig.width=6}
+corpus <- Corpus(VectorSource(df_reviews_04star$text))
+corpus <- tm_map(corpus, content_transformer(tolower)) 
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers) 
+corpus <- tm_map(corpus, stripWhitespace)
+# Tokenizing the corpus and construct N-Grams
+# Will only construct 4-gram tokenizers
+# Tokenizer for n-grams and passed on to the term-document matrix constructor
+TdmQuad <- TermDocumentMatrix(corpus, control = list(tokenize = QuadgramTokenizer))
+# Remove NAs
+TdmQuad <- slam::rollup(TdmQuad, 2, na.rm=TRUE, FUN = sum)
+# Term frequency
+freq.quad <- rowSums(as.matrix(TdmQuad))
+##sort
+freq.quad <- sort(freq.quad, decreasing = TRUE)
+# Create the top X data frames from the matrices
+topnum <- 30
+df.freq.quad <- data.frame("Term"=names(head(freq.quad,topnum)), "Frequency"=head(freq.quad,topnum))
+# Reorder levels for better plotting
+df.freq.quad$Term1 <- reorder(df.freq.quad$Term, df.freq.quad$Frequency)
+# clear memory
+rm(TdmQuad)
+```
+
+```{r, eval=T, echo=F, fig.height=5, fig.width=8}
+### Bar plots for N-Grams Token (4-star reviews)
+p4 <-
+    ggplot(df.freq.quad, aes(x = Term1, y = Frequency)) +
+    geom_bar(stat = "identity", color="gray55", fill="brown1") +
+    geom_text(data=df.freq.quad,aes(x=Term1,y=-3,label=Frequency),vjust=0, size=3) +  
+    xlab("Terms") + ylab("Count") + ggtitle("Top 30 QuadGram Tokenized Word Frequency (4-star reviews)") +
+    theme(plot.title = element_text(lineheight=.8, face="bold")) +
+    coord_flip()
+multiplot(p4, cols=1)
+```
+
+```{r, eval=T, echo=F, fig.height=3, fig.width=3, message=F, warning=F}
+### Word Clouds for QuadGram Tokens (4-star reviews)
+renderWordCloud(words = df.freq.quad$Term1,
+                freq = df.freq.quad$Frequency,  
+                max.words = Inf,
+                title = "QuadGram Word Cloud (4-star reviews)",
+                scale = c(2.5,0.2))
+```
+
+## Results for 5-star Reviews
+
+```{r, echo=F, fig.height=3, fig.width=6}
+corpus <- Corpus(VectorSource(df_reviews_05star$text))
+corpus <- tm_map(corpus, content_transformer(tolower)) 
+corpus <- tm_map(corpus, removePunctuation) 
+corpus <- tm_map(corpus, removeNumbers) 
+corpus <- tm_map(corpus, stripWhitespace)
+# Tokenizing the corpus and construct N-Grams
+# Will only construct 4-gram tokenizers
+# Tokenizer for n-grams and passed on to the term-document matrix constructor
+TdmQuad <- TermDocumentMatrix(corpus, control = list(tokenize = QuadgramTokenizer))
+# Remove NAs
+TdmQuad <- slam::rollup(TdmQuad, 2, na.rm=TRUE, FUN = sum)
+# Term frequency
+freq.quad <- rowSums(as.matrix(TdmQuad))
+##sort
+freq.quad <- sort(freq.quad, decreasing = TRUE)
+# Create the top X data frames from the matrices
+topnum <- 30
+df.freq.quad <- data.frame("Term"=names(head(freq.quad,topnum)), "Frequency"=head(freq.quad,topnum))
+# Reorder levels for better plotting
+df.freq.quad$Term1 <- reorder(df.freq.quad$Term, df.freq.quad$Frequency)
+# clear memory
+rm(TdmQuad)
+```
+
+```{r, eval=T, echo=F, fig.height=5, fig.width=8}
+### Bar plots for N-Grams Token (5-star reviews)
+p4 <-
+    ggplot(df.freq.quad, aes(x = Term1, y = Frequency)) +
+    geom_bar(stat = "identity", color="gray55", fill="brown1") +
+    geom_text(data=df.freq.quad,aes(x=Term1,y=-3,label=Frequency),vjust=0, size=3) +  
+    xlab("Terms") + ylab("Count") + ggtitle("Top 30 QuadGram Tokenized Word Frequency (5-star reviews)") +
+    theme(plot.title = element_text(lineheight=.8, face="bold")) +
+    coord_flip()
+multiplot(p4, cols=1)
+```
+
+```{r, eval=T, echo=F, fig.height=5, fig.width=5, message=F, warning=F}
+### Word Clouds for QuadGram Tokens (5-star reviews)
+renderWordCloud(words = df.freq.quad$Term1,
+                freq = df.freq.quad$Frequency,  
+                max.words = Inf,
+                title = "QuadGram Word Cloud (5-star reviews)",
+                scale = c(2.5,0.2))
+```
+
+It is observed that:
+
+* The 1- and 2-star reviews tend to be very vocal and negative (e.g. never returning and wasting of time etc) with only a few specific reference to foodor service.
+* In contrast, the 3-, 4- and 5-star reviews contain a lot more positive phrases with direct references to food and love for the place (e.g. "the food was good", "a big fan of", "was good and the", "one of the best", "for the first time", "to go back and", "my friend and I", "my husband and I", "is one of the", "i love this place", "i have ever had" etc). 
+
+
+***
+
+## Useful Functions
+```{r, eval=F, echo=T, fig.height=3, fig.width=3}
+
+#install.packages("devtools")
+#require(devtools)
+#library(devtools)
+
+#install.packages("tm.lexicon.GeneralInquirer", repos="http://datacube.wu.ac.at", type="source")
+
+library(ggplot2)
+library(tm)
+library(RColorBrewer)
+library(wordcloud)
+library(tm.lexicon.GeneralInquirer)
+library(slam)
+library(grid)
+
+################################################################################
+# Function to compute net sentiment score by analyzing text (tweets, blogs, reviews)
+#
+# Input: Text objects
+# - text: vector of text objects
+#
+# Calculate the positive and negative sentiment scores of text
+#
+# Output:
+# - Data frame of 3 columns: positive score, negative score, net score
+#   where net score = positive score - negative score)
+#
+# Reference: http://stackoverflow.com/questions/29918017/how-to-use-sentiment-package-in-r-3-2-0
+
+getSentimentScore = function(text)
+{
+    require(tm.lexicon.GeneralInquirer)
+    #require(tm.plugin.sentiment)
+    require(tm)
+
+    corpus <- Corpus(VectorSource(text))
+    pos <- sum(sapply(corpus, tm_term_score, terms_in_General_Inquirer_categories("Positiv")))
+    neg <- sum(sapply(corpus, tm_term_score, terms_in_General_Inquirer_categories("Negativ")))
+    pos.score <- tm_term_score(TermDocumentMatrix(corpus, 
+                                                  control = list(removePunctuation = TRUE)),
+                               terms_in_General_Inquirer_categories("Positiv")) 
+    neg.score <- tm_term_score(TermDocumentMatrix(corpus, control = list(removePunctuation = TRUE)), 
+                               terms_in_General_Inquirer_categories("Negativ")) 
+    total.df <- data.frame(positive = pos.score, negative = neg.score)
+    total.df <- transform(total.df, score = positive - negative)
+    total.df
+}
+
+################################################################################
+# Generic function to clean up text for visualization with wordcloud
+#
+# Input: Text objects
+# - x: vector of text objects
+#
+# - can be used for tweets, blogs and reviews
+# - remove rt
+# - remove at
+# - remove punctuation
+# - remove numbers
+# - remove tabs
+# - remove HTTP links
+# - remove blank space at beginning and end
+#
+# Output:
+# - Text objects
+#
+# Reference: https://sites.google.com/site/miningtwitter/questions/talking-about/wordclouds/comparison-cloud
+
+# Clean up text prior using for wordcloud
+cleanUpText = function(x)
+{
+    # tolower
+    x = tolower(x)
+    # remove rt
+    x = gsub("rt", "", x)
+    # remove at
+    x = gsub("@\\w+", "", x)
+    # remove punctuation
+    x = gsub("[[:punct:]]", "", x)
+    # remove numbers
+    x = gsub("[[:digit:]]", "", x)
+    # remove links http
+    x = gsub("http\\w+", "", x)
+    # remove tabs
+    x = gsub("[ |\t]{2,}", "", x)
+    # remove blank spaces at the beginning
+    x = gsub("^ ", "", x)
+    # remove blank spaces at the end
+    x = gsub(" $", "", x)
+    return(x)
+}
+
+# Cleans text and display top number of words (x) or Inf in a wordcloud
+
+################################################################################
+# Generic function to cleanup text and display in wordcloud
+#
+# Input: 
+# - x: vector of text objects
+# - max.words: Maximum number of words to be plotted. 
+# - title: title of plot to be displayed  
+#
+# - cleans up text 
+# - remove stopwords
+# - dislay wordcloud
+#
+# Output:
+# - Nothing
+#
+# Reference: https://sites.google.com/site/miningtwitter/questions/talking-about/wordclouds/comparison-cloud
+
+renderCleanedWordCloud = function(x, max.words=Inf, title = "")
+{
+    cleanedText <- cleanUpText(x)
+    vector <- paste(cleanedText, collapse=" ")
+    remwords <- c("the", "just",
+                  "will", "would", "shall", "should",
+                  "got", "ive",
+                  "they", "them",
+                  "he", "his",
+                  "she", "hers")
+    vector <- removeWords(vector,c(stopwords("english"),remwords))
+    layout(matrix(c(1, 2), nrow=2), heights=c(1, 4))
+    par(mar=rep(0, 4))
+    plot.new()
+    text(x=0.5, y=0.5, title)
+    wordcloud(vector,  
+              random.order=FALSE,
+              max.words=max.words,
+              rot.per=0.35,
+              colors = brewer.pal(8,"Dark2"))
+}
+
+################################################################################
+# Generic function to display words in wordcloud (without cleanup of words)
+#
+# Input: 
+# - words: words to be displayed
+# - freq: word frequencies
+# - max.words: Maximum number of words to be plotted. 
+# - title: title of plot to be displayed  
+# - scale: vector of length 2 indicating the range of the size of the words
+# - min.freq: words with frequency below min.freq will not be plotted
+#
+# Output:
+# - Nothing
+
+renderWordCloud = function(words, freq, max.words = Inf, title = "", scale = c(5,0.5), min.freq = 1)
+{
+    layout(matrix(c(1, 2), nrow=2), heights=c(1, 4))
+    par(mar=rep(0, 4))
+    plot.new()
+    text(x=0.5, y=0.5, title)
+    
+    wordcloud(words = words,
+              freq = freq,
+              random.order=FALSE,
+              rot.per=0.35,
+              min.freq = 1,
+              scale = scale,
+              use.r.layout=FALSE,
+              colors=brewer.pal(8, "Dark2"))
+}
+
+
+################################################################################
+# Multiple plot function
+#
+# ggplot objects can be passed in ..., or to plotlist (as a list of ggplot objects)
+# - cols:   Number of columns in layout
+# - layout: A matrix specifying the layout. If present, 'cols' is ignored.
+#
+# If the layout is something like matrix(c(1,2,3,3), nrow=2, byrow=TRUE),
+# then plot 1 will go in the upper left, 2 will go in the upper right, and
+# 3 will go all the way across the bottom.
+#
+# Ref: https://rpubs.com/AsemRadhwi/capstone
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+    require(grid)
+    
+    # Make a list from the ... arguments and plotlist
+    plots <- c(list(...), plotlist)
+    
+    numPlots = length(plots)
+    
+    # If layout is NULL, then use 'cols' to determine layout
+    if (is.null(layout)) {
+        # Make the panel
+        # ncol: Number of columns of plots
+        # nrow: Number of rows needed, calculated from # of cols
+        layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                         ncol = cols, nrow = ceiling(numPlots/cols))
+    }
+    
+    if (numPlots==1) {
+        print(plots[[1]])
+        
+    } else {
+        # Set up the page
+        grid.newpage()
+        pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+        
+        # Make each plot, in the correct location
+        for (i in 1:numPlots) {
+            # Get the i,j matrix positions of the regions that contain this subplot
+            matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+            
+            print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                            layout.pos.col = matchidx$col))
+        }
+    }
+}
+
+################################################################################
+# Functions to splits a string into an n-gram with min and max grams. 
+# Specifically for 1-gram, 2-gram, 3-gram and 4-gram 
+#
+# Ref: https://rpubs.com/AsemRadhwi/capstone
+require(RWeka)
+UnigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 1, max = 1))
+BigramTokenizer  <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+TrigramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+QuadgramTokenizer <- function(x) NGramTokenizer(x, Weka_control(min = 4, max = 4))
+
+```
+
+***
+

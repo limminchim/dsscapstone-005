@@ -1,0 +1,118 @@
+Capstone Project for Data Science Course 
+========================================================
+author: Paul Lim Min Chim
+date: 20 Nov 2015
+transition: rotate
+autosize: true
+
+<small>Sentiment Analysis of Yelp Restaurant Reviews</small>
+
+Slide #2
+========================================================
+title: false
+transition: rotate
+autosize: true
+**<u>Introduction</u>**
+<small>
+Sentiment analysis is the computational study of opinions, sentiments and emotions expressed in text. It has many applications and is useful for social media monitoring, tracking of business reviews and business analytics. 
+</small>
+
+**<u>Problem Statement</u>**
+<small>
+Using sentiment analysis, I hope to answer the following with regards to the [Yelp Dataset](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/yelp_dataset_challenge_academic_dataset.zip):
+- What are the most-frequently used phrases in reviews?
+- What motivation can we infer for customers to write reviews, from the most-frequently used phrases in reviews?
+</small>
+
+**<u>Who will find this interesting?</u>**
+<small>
+This may be of interest to business owners who want to identify their business strengths and weaknesses based on customer reviews. Such analysis can also be used to predict how key review phrases may influence the review rating, and ultimately impact the business.
+</small>
+
+Slide #3
+========================================================
+title: false
+transition: rotate
+autosize: true
+**<u>Methods</u>**
+
+<small>
+For capstone project, the focus is on restaurants review data from [Yelp Dataset](https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/yelp_dataset_challenge_academic_dataset.zip). A sample of 1,000 restaurant reviews is taken, from which I build the corpus and term-document matrix:
+- convert text to lower case
+- remove punctuation
+- remove numbers
+- remove white space
+
+I skip stemming and removal of sparse terms in order to consider all words from the reviews. I build and sort data frames of 4-Grams tokens before plotting bar plots and wordclouds for visualization and analysis. The data visualization and analysis of the most-frequently-used phrases (for reviews with different star-ratings) will be used to answer the questions.
+</small>
+
+Slide #4
+========================================================
+title: false
+transition: rotate
+autosize: true
+<font size="5">
+**<u>Exploratory Analysis</u>**
+- Figure 1: Number of ratings drop with the star-rating itself. 
+- Figure 2 and 3: 1- and 2-star reviews contain lots of negative words, food-related and service-related references.
+- Figure 4, 5 and 6: 3-, 4- and 5-star reviews contain more postive descriptive words, but much fewer references to specifics of food or service.
+- All reviews: Among the top-words, there are no references to car parks, wi-fi, coat check, music, distance, convenience etc.
+
+The full report and plots can be viewed [here](http://rpubs.com/limminchim/dsscapstone-005).
+</font>
+
+***
+<small>
+<table border="0">
+  <tr>
+    <td>
+      <small>Figure 1:</small><br>
+      <img src="dsscapstone-005-figure/unnamed-chunk-2-1.png" alt="Figure 1" style="width:200px;">
+    </td>
+    <td>
+      <small>Figure 2:</small><br>
+      <img src="dsscapstone-005-figure/unnamed-chunk-16-1.png" alt="Figure 2" style="width:200px;">
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <small>Figure 3:</small><br>
+      <img src="dsscapstone-005-figure/unnamed-chunk-19-1.png" alt="Figure 3" style="width:200px;">
+    </td>
+    <td>
+      <small>Figure 4:</small><br>
+      <img src="dsscapstone-005-figure/unnamed-chunk-22-1.png" alt="Figure 4" style="width:200px;">
+    </td>
+  </tr>
+    <tr>
+    <td>
+      <small>Figure 3:</small><br>
+      <img src="dsscapstone-005-figure/unnamed-chunk-25-1.png" alt="Figure 3" style="width:200px;">
+    </td>
+    <td>
+      <small>Figure 4:</small><br>
+      <img src="dsscapstone-005-figure/unnamed-chunk-28-1.png" alt="Figure 4" style="width:200px;">
+    </td>
+  </tr>
+</table>
+</small>
+
+
+Slide #5
+========================================================
+title: false
+transition: rotate
+autosize: true
+**<u>Discussion & Conclusion</u>**<br>
+<font size="5">
+
+**Most-frequently used phrases:**
+- Common positive descriptive words: good, great, best and like.
+- Common business-related nouns: food, place, service and experience.
+- &quot;I will not be&quot;, &quot;will never go back&quot;, &quot;the rest of the&quot;, &quot;my husband and i&quot;, &quot;the quality of the&quot;, &quot;the food was good&quot;, &quot;one of the best&quot;, &quot;a great place to&quot;, &quot;i love this place&quot;, &quot;i have ever had&quot;
+
+**Motivation for writing reviews:**
+- A trend that customers with positive user experience are more likely to write reviews, while the opposite may not necessarily bother to write about it.
+- Customers write most frequently about food quality (e.g. their favorite food etc) and service quality (e.g. waitress, orders, people), with no references to other attributes like car parks, wi-fi, music etc. Inference: Provision of outstanding food and/or customer service will have a higher probability of a review being written.
+
+</font>
