@@ -136,7 +136,7 @@ The tri-grams top results further supports the inference that "food" and "place"
 
 # Results 
 
-Now I apply the same steps on the full dataset of 883750 reviews. From a sample of 1000 reviews, we extracted 80 1-star, 96 2-star, 160 3-star, 314 4-star and 350 5-star reviews.
+Now I apply the same steps on the full dataset of 883750 reviews. From a sample of 883750 reviews, we extracted 75625 1-star, 85181 2-star, 135323 3-star, 285231 4-star and 302390 5-star reviews.
 
 
 ![](dsscapstone-005_files/figure-html/unnamed-chunk-8-1.png) 

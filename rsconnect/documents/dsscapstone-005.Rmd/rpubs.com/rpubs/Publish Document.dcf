@@ -1,0 +1,7 @@
+name: Publish Document
+account: rpubs
+server: rpubs.com
+bundleId:
+        https://api.rpubs.com/api/v1/document/127747/1c0a0e4ba8564f0d8e418935629300c8
+url: http://rpubs.com/limminchim/127747
+when: 1448047957.22593

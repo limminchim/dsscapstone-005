@@ -452,14 +452,14 @@ The tri-grams top results further supports the inference that "food" and "place"
 Now I apply the same steps on the full dataset of `r numReviews` reviews. 
 
 ```{r, echo=T, fig.height=3, fig.width=6}
-#df_review_samples <- df_rest_reviews
+df_review_samples <- df_rest_reviews
 
 # extract reviews of different rating
-#df_reviews_01star <- df_review_samples[df_review_samples$stars==1,]
-#df_reviews_02star <- df_review_samples[df_review_samples$stars==2,]
-#df_reviews_03star <- df_review_samples[df_review_samples$stars==3,]
-#df_reviews_04star <- df_review_samples[df_review_samples$stars==4,]
-#df_reviews_05star <- df_review_samples[df_review_samples$stars==5,]
+df_reviews_01star <- df_review_samples[df_review_samples$stars==1,]
+df_reviews_02star <- df_review_samples[df_review_samples$stars==2,]
+df_reviews_03star <- df_review_samples[df_review_samples$stars==3,]
+df_reviews_04star <- df_review_samples[df_review_samples$stars==4,]
+df_reviews_05star <- df_review_samples[df_review_samples$stars==5,]
 ```
 
 From a sample of `r nrow(df_review_samples)` reviews, there are `r nrow(df_reviews_01star)` 1-star, `r nrow(df_reviews_02star)` 2-star, `r nrow(df_reviews_03star)` 3-star, `r nrow(df_reviews_04star)` 4-star and `r nrow(df_reviews_05star)` 5-star reviews.
